@@ -106,7 +106,9 @@ void cmd_stop_ble_tx()
 }
 
 // Start BTC TX Test
-void cmd_start_btc_tx(uint32_t frequency_mhz, uint8_t transmit_power_dbm)
+void cmd_start_btc_tx(uint8_t hopping_mode, uint32_t frequency_mhz, uint8_t modulation_type, 
+       uint8_t logical_channel, uint8_t packet_type, uint16_t packet_length,
+       uint8_t transmit_power_dbm)
 {
     if(!hci_test_check()) return;
 
@@ -129,22 +131,132 @@ void cmd_start_btc_tx(uint32_t frequency_mhz, uint8_t transmit_power_dbm)
     uint8_t param_len = 16;
 
     uint32_t freq_idx = frequency_mhz - 2402;
-    uint8_t hopping_mode = 0x01; // Single frequency
-    uint8_t modulation_type = 0x04; // PRBS9 PATTERN
-    uint8_t logical_channel = 0x00; // ACL EDR
-    uint8_t bb_packet_type = 0x0F; // DH5/3DH5
-    uint16_t bb_packet_len = 339; // BB PACKET LENGTH
-    uint8_t bb_packet_len_lo = (bb_packet_len & 0xFF);
-    uint8_t bb_packet_len_hi = (bb_packet_len & 0xFF00) >> 8;
+
+    uint8_t bb_packet_len_lo = (packet_length & 0xFF);
+    uint8_t bb_packet_len_hi = (packet_length & 0xFF00) >> 8;
 
     uint8_t tx_power_level_sel = 0x08; // Specify power in dBm
     uint8_t tx_power_dbm = transmit_power_dbm;
 
     uint8_t transmit_power_table_index = 0x00;
 
+    // Print and validate parameters
+    printf("  Parameters:\n");
+    // Hopping mode
+    switch(hopping_mode) {
+        case 0:
+            printf("    Hopping Mode: 0 (79 Channel)\n");
+            break;
+        case 1:
+            printf("    Hopping Mode: 1 (Single Frequency)\n");
+            break;
+        default:
+            printf("    ERROR: Invalid hopping_mode (%d)\n", hopping_mode);
+            return;
+    }
+    // Modulation type
+    switch(modulation_type) {
+        case 1:
+            printf("    Modulation Type: 1 (0x00 8-bit pattern)\n");
+            break;
+        case 2:
+            printf("    Modulation Type: 2 (0xFF 8-bit pattern)\n");
+            break;
+        case 3:
+            printf("    Modulation Type: 3 (0xAA 8-bit pattern)\n");
+            break;
+        case 4:
+            printf("    Modulation Type: 4 (PRBS9 Pattern)\n");
+            break;
+        case 9:
+            printf("    Modulation Type: 9 (0xF0 8-bit pattern)\n");
+            break;
+        default:
+            printf("    ERROR: Invalid modulation_type (%d)\n", modulation_type);
+            return;
+    }
+    // Logical channel
+    switch(logical_channel) {
+        case 0:
+            printf("    Logical Channel: 0 (ACL EDR)\n");
+            break;
+        case 1:
+            printf("    Logical Channel: 1 (ACL Basic)\n");
+            break;
+        case 2:
+            printf("    Logical Channel: 2 (eSCO EDR)\n");
+            break;
+        case 3:
+            printf("    Logical Channel: 3 (eSCO Basic)\n");
+            break;
+        case 4:
+            printf("    Logical Channel: 4 (SCO Basic)\n");
+            break;
+        default:
+            printf("    ERROR: Invalid logical_channel (%d)\n", logical_channel);
+            return;
+    }
+    // Packet type
+    switch(packet_type) {
+        case 0:
+            printf("    Packet Type: 0 (NULL)\n");
+            break;
+        case 1:
+            printf("    Packet Type: 1 (POLL)\n");
+            break;
+        case 2:
+            printf("    Packet Type: 2 (FHS)\n");
+            break;
+        case 3:
+            printf("    Packet Type: 3 (DM1)\n");
+            break;
+        case 4:
+            printf("    Packet Type: 4 (DH1 / 2-DH1)\n");
+            break;
+        case 5:
+            printf("    Packet Type: 5 (HV1)\n");
+            break;
+        case 6:
+            printf("    Packet Type: 6 (HV2 / 2-EV3)\n");
+            break;
+        case 7:
+            printf("    Packet Type: 7 (HV3 / EV3 / 3-EV3)\n");
+            break;
+        case 8:
+            printf("    Packet Type: 8 (DV / 3-DH1)\n");
+            break;
+        case 9:
+            printf("    Packet Type: 9 (AUX1 / PS)\n");
+            break;
+        case 10:
+            printf("    Packet Type: 10 (DM3 / 2-DH3)\n");
+            break;
+        case 11:
+            printf("    Packet Type: 11 (DH3 / 3-DH3)\n");
+            break;
+        case 12:
+            printf("    Packet Type: 12 (EV4 / 2-EV5)\n");
+            break;
+        case 13:
+            printf("    Packet Type: 13 (EV5 / 3-EV5)\n");
+            break;
+        case 14:
+            printf("    Packet Type: 14 (DM5 / 2-DH5)\n");
+            break;
+        case 15:
+            printf("    Packet Type: 15 (DH5 / 3-DH5)\n");
+            break;
+        default:
+            printf("    ERROR: Invalid packet_type (%d)\n", packet_type);
+            return;
+    }
+    printf("    Frequency: %u MHz\n", frequency_mhz);
+    printf("    Packet Length: %u\n", packet_length);
+    printf("    TX Power (dBm): %u\n", transmit_power_dbm);
+
     uint8_t cmd[19] = { opcode_lo, opcode_hi, param_len,
         addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
-        (uint8_t) freq_idx, hopping_mode, modulation_type, logical_channel, bb_packet_type,
+        (uint8_t) freq_idx, hopping_mode, modulation_type, logical_channel, packet_type,
         bb_packet_len_lo, bb_packet_len_hi, tx_power_level_sel, tx_power_dbm, transmit_power_table_index
         };
 
@@ -167,7 +279,7 @@ uint8_t _ble_mhz_to_tx_channel(int freq_mhz) {
 }
 
 // Start BLE TX Test
-void cmd_start_ble_tx(uint32_t frequency_mhz)
+void cmd_start_ble_tx(uint32_t frequency_mhz, uint32_t length, uint32_t payload, uint32_t phy)
 {
     if(!hci_reset_done) {
         printf("ERROR: \n");
@@ -193,13 +305,74 @@ void cmd_start_ble_tx(uint32_t frequency_mhz)
         return;
     }
 
+    if(length==0)
+    {
+        // Set default length
+        length = 37;
+    }
+    else if (length>255) 
+    {
+        length = 255;
+    }
+
     printf("> START BLE TX:\n");
+    printf("  Parameters:\n");
+    printf("    Frequency: %u MHz\n", frequency_mhz);
+    printf("    Length: %u\n", length);
+    // Payload
+    switch(payload) {
+        case 0:
+            printf("    Payload: 0 (PRBS9)\n");
+            break;
+        case 1:
+            printf("    Payload: 1 (0xF0 alternating bits '11110000')\n");
+            break;
+        case 2:
+            printf("    Payload: 2 (0xAA alternating bits '10101010')\n");
+            break;
+        case 3:
+            printf("    Payload: 3 (PRBS15)\n");
+            break;
+        case 4:
+            printf("    Payload: 4 (all '1' bits)\n");
+            break;
+        case 5:
+            printf("    Payload: 5 (all '0' bits)\n");
+            break;
+        case 6:
+            printf("    Payload: 6 (0x0F alternating bits '00001111')\n");
+            break;
+        case 7:
+            printf("    Payload: 7 (0x55 alternating bits '01010101')\n");
+            break;
+        default:
+            printf("    ERROR: Invalid payload (%d)\n", payload);
+            return;
+    }
+    // PHY
+    switch(phy) {
+        case 1:
+            printf("    PHY: 1 (1M)\n");
+            break;
+        case 2:
+            printf("    PHY: 2 (2M)\n");
+            break;
+        case 3:
+            printf("    PHY: 3 (Coded S=8)\n");
+            break;
+        case 4:
+            printf("    PHY: 4 (Coded S=2)\n");
+            break;
+        default:
+            printf("    ERROR: Invalid phy (%d)\n", phy);
+            return;
+    }
 
     uint8_t ch = _ble_mhz_to_tx_channel((int) frequency_mhz);
 
-    uint8_t cmd[6] = {0x1E, 0x20, 0x03, ch, 0x25, 0x00};
+    uint8_t cmd[7] = {0x34, 0x20, 0x04, ch, (uint8_t)length, (uint8_t)payload, (uint8_t)phy};
     ble_test_active = true;
-    send_hci_command_bytes(cmd, 6);
+    send_hci_command_bytes(cmd, 7);
 }
 
 // Read the BDADDR
@@ -383,21 +556,28 @@ void send_hci_command_bytes(uint8_t *command_buffer, size_t command_len) {
 void cmd_help(void) {
     printf("\n=== HCI Bridge Help ===\n");
     printf("General Commands:\n");
-    printf("  help                    - Show this help\n");
-    printf("  loadinfo                - Load device info, required to perform tests\n");
-    printf("  reset                   - Perform HCI reset\n");
-    printf("  bootloader              - Reset to USB bootloader\n");
+    printf("  help                                  - Show this help\n");
+    printf("  loadinfo                              - Load device info, required to perform tests\n");
+    printf("  reset                                 - Perform HCI reset\n");
+    printf("  bootloader                            - Reset to USB bootloader\n");
     printf("\nBluetooth Test Commands:\n");
-    printf("  btc_tx <freq>           - Start BTC transmit test\n");
-    printf("                            freq: Frequency in MHz\n");
-    printf("                            Power level is set to 4dBm always\n");
-    printf("  btc_stop                - Stop BTC transmit test\n");
-    printf("  ble_tx <freq>           - Start BLE transmit test\n");
-    printf("                            freq: Frequency in MHz\n");
-    printf("                            MUST REBOOT TO STOP TEST\n");
-    //printf("  ble_stop                - Stop BLE transmit test\n");
+    printf("  btc_tx <hopping_mode> <freq> <modulation_type> <logical_channel> <packet_type> <packet_length> <tx_power_dbm>\n");
+    printf("    hopping_mode: 0=79ch, 1=single freq\n");
+    printf("    freq: Frequency in MHz (2402-2480)\n");
+    printf("    modulation_type: 1=0x00, 2=0xFF, 3=0xAA, 4=PRBS9, 9=0xF0\n");
+    printf("    logical_channel: 0=ACL EDR, 1=ACL Basic, 2=eSCO EDR, 3=eSCO Basic, 4=SCO Basic\n");
+    printf("    packet_type: 0=NULL, 1=POLL, 2=FHS, 3=DM1, 4=DH1/2-DH1, 5=HV1, 6=HV2/2-EV3, 7=HV3/EV3/3-EV3, 8=DV/3-DH1, 9=AUX1/PS, 10=DM3/2-DH3, 11=DH3/3-DH3, 12=EV4/2-EV5, 13=EV5/3-EV5, 14=DM5/2-DH5, 15=DH5/3-DH5\n");
+    printf("    packet_length: 0-339\n");
+    printf("    tx_power_dbm: 0-8\n");
+    printf("  btc_stop                              - Stop BTC transmit test\n");
+    printf("  ble_tx <freq> <length> <payload> <phy>\n");
+    printf("    freq: Frequency in MHz (2402-2480)\n");
+    printf("    length: 1-255 (default 37)\n");
+    printf("    payload: 0=PRBS9, 1=0xF0, 2=0xAA, 3=PRBS15, 4=all '1', 5=all '0', 6=0x0F, 7=0x55\n");
+    printf("    phy: 1=1M, 2=2M, 3=Coded S=8, 4=Coded S=2\n");
+    printf("  ble_stop                              - Stop BLE transmit test\n");
     printf("\nRaw HCI Commands:\n");
-    printf("  <hex_string>            - Send raw HCI command\n");
+    printf("  <hex_string>                          - Send raw HCI command\n");
     printf("  Format: OPCODE_LOW OPCODE_HIGH PARAM_LEN [PARAM_BYTES...]\n");
     printf("  Example: 01 10 00 (HCI_Reset)\n");
     printf("====================\n\n");
@@ -408,21 +588,18 @@ void parse_and_execute_command(const char* command) {
     if (strncmp(command, "help", 4) == 0) {
         cmd_help();
     } else if (strncmp(command, "btc_tx", 6) == 0) {
-        // Skip past "btc_tx" and any following spaces
+        // btc_tx <hopping_mode> <freq> <modulation_type> <logical_channel> <packet_type> <packet_length> <tx_power_dbm>
         const char* params = command + 6;
-        while (*params == ' ') params++; // Skip whitespace
- 
-        int param1;
-        int parsed = sscanf(params, "%d %d", &param1);
-        
-        if (parsed == 1) {
-            // Successfully parsed both parameters
-            printf("BTC TX command: freq_mhz=%d\n", param1);
-            // Call your function with the parameters
-            cmd_start_btc_tx((uint32_t) param1, 4);
+        while (*params == ' ') params++;
+        int hopping_mode, freq, modulation_type, logical_channel, packet_type, packet_length, tx_power_dbm;
+        int parsed = sscanf(params, "%d %d %d %d %d %d %d", &hopping_mode, &freq, &modulation_type, &logical_channel, &packet_type, &packet_length, &tx_power_dbm);
+        if (parsed == 7) {
+            printf("BTC TX: hopping_mode=%d, freq=%d, modulation_type=%d, logical_channel=%d, packet_type=%d, packet_length=%d, tx_power_dbm=%d\n",
+                hopping_mode, freq, modulation_type, logical_channel, packet_type, packet_length, tx_power_dbm);
+            cmd_start_btc_tx(hopping_mode, freq, modulation_type, logical_channel, packet_type, packet_length, tx_power_dbm);
         } else {
-            printf("Error: btc_tx requires frequency parameter\n");
-            printf("Usage: btc_tx <freq>\n");
+            printf("Error: btc_tx requires 7 parameters\n");
+            printf("Usage: btc_tx <hopping_mode> <freq> <modulation_type> <logical_channel> <packet_type> <packet_length> <tx_power_dbm>\n");
         }
     } else if (strncmp(command, "btc_stop", 8) == 0) {
         cmd_stop_btc_tx();
@@ -431,20 +608,17 @@ void parse_and_execute_command(const char* command) {
     } else if (strncmp(command, "bootloader", 6) == 0) {
         cmd_reset_bootloader();
     } else if (strncmp(command, "ble_tx", 6) == 0) {
+        // ble_tx <freq> <length> <payload> <phy>
         const char* params = command + 6;
-        while (*params == ' ') params++; // Skip whitespace
- 
-        int param1;
-        int parsed = sscanf(params, "%d %d", &param1);
-        
-        if (parsed == 1) {
-            // Successfully parsed both parameters
-            printf("BLE TX command: freq_mhz=%d\n", param1);
-            // Call your function with the parameters
-            cmd_start_ble_tx((uint32_t) param1);
+        while (*params == ' ') params++;
+        int freq, length, payload, phy;
+        int parsed = sscanf(params, "%d %d %d %d", &freq, &length, &payload, &phy);
+        if (parsed == 4) {
+            printf("BLE TX: freq=%d, length=%d, payload=%d, phy=%d\n", freq, length, payload, phy);
+            cmd_start_ble_tx(freq, length, payload, phy);
         } else {
-            printf("Error: btc_tx requires frequency parameter\n");
-            printf("Usage: btc_tx <freq>\n");
+            printf("Error: ble_tx requires 4 parameters\n");
+            printf("Usage: ble_tx <freq> <length> <payload> <phy>\n");
         }
     } else if (strncmp(command, "ble_stop", 8) == 0) {
         cmd_stop_ble_tx();
