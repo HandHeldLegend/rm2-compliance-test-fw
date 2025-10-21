@@ -79,12 +79,14 @@ void cmd_hci_reset()
 {
     printf("> HCI RESET:\n");
 
-    uint8_t cmd[] = {0x03, 0x0C, 0x00};
+    //uint8_t cmd[] = {0x03, 0x0C, 0x00};
 
     hci_reset_done = true;
     ble_test_active = false;
     btc_test_active = false;
-    send_hci_command_bytes(cmd, 3); 
+    //send_hci_command_bytes(cmd, 3); 
+
+    hci_send_cmd(&hci_reset);
 }
 
 // Stop BTC TX Test
@@ -95,6 +97,7 @@ void cmd_stop_btc_tx()
     btc_test_active = false;
     cmd_hci_reset();
 }
+
 
 // Stop BLE TX Test
 void cmd_stop_ble_tx()
@@ -278,101 +281,41 @@ uint8_t _ble_mhz_to_tx_channel(int freq_mhz) {
     return (uint8_t)k;
 }
 
-// Start BLE TX Test
-void cmd_start_ble_tx(uint32_t frequency_mhz, uint32_t length, uint32_t payload, uint32_t phy)
+void cmd_start_ble_tx(uint8_t channel, uint8_t length, uint8_t payload)
 {
-    if(!hci_reset_done) {
-        printf("ERROR: \n");
-        printf(" Must do reset command first!\n");
-        return;
-    }
-
-    if(ble_test_active) {
-        printf("ERROR: \n");
-        printf(" BLE test already running!\n");
-        return;
-    }
-
-    if(btc_test_active) {
-        printf("ERROR: \n");
-        printf(" BTC test already running!\n");
-        return;
-    }
-
-    if(frequency_mhz < 2402 || frequency_mhz > 2480) {
-        printf("ERROR: \n");
-        printf(" Frequency must be between 2402 and 2480\n");
-        return;
-    }
-
-    if(length==0)
-    {
-        // Set default length
-        length = 37;
-    }
-    else if (length>255) 
-    {
-        length = 255;
-    }
-
-    printf("> START BLE TX:\n");
-    printf("  Parameters:\n");
-    printf("    Frequency: %u MHz\n", frequency_mhz);
-    printf("    Length: %u\n", length);
-    // Payload
+    printf("> HCI BLE TX TEST:\n");
+    printf("  Channel: %d (Freq: %d MHz)\n", channel, 2402 + (channel * 2));
+    printf("  Length: %d bytes\n", length);
+    printf("  Payload Type: 0x%02X ", payload);
+    
+    // Print payload type description
     switch(payload) {
-        case 0:
-            printf("    Payload: 0 (PRBS9)\n");
-            break;
-        case 1:
-            printf("    Payload: 1 (0xF0 alternating bits '11110000')\n");
-            break;
-        case 2:
-            printf("    Payload: 2 (0xAA alternating bits '10101010')\n");
-            break;
-        case 3:
-            printf("    Payload: 3 (PRBS15)\n");
-            break;
-        case 4:
-            printf("    Payload: 4 (all '1' bits)\n");
-            break;
-        case 5:
-            printf("    Payload: 5 (all '0' bits)\n");
-            break;
-        case 6:
-            printf("    Payload: 6 (0x0F alternating bits '00001111')\n");
-            break;
-        case 7:
-            printf("    Payload: 7 (0x55 alternating bits '01010101')\n");
-            break;
-        default:
-            printf("    ERROR: Invalid payload (%d)\n", payload);
-            return;
+        case 0x00: printf("(PRBS9)\n"); break;
+        case 0x01: printf("(11110000)\n"); break;
+        case 0x02: printf("(10101010)\n"); break;
+        case 0x03: printf("(PRBS15)\n"); break;
+        case 0x04: printf("(11111111)\n"); break;
+        case 0x05: printf("(00000000)\n"); break;
+        case 0x06: printf("(00001111)\n"); break;
+        case 0x07: printf("(01010101)\n"); break;
+        default: printf("(INVALID)\n"); break;
     }
-    // PHY
-    switch(phy) {
-        case 1:
-            printf("    PHY: 1 (1M)\n");
-            break;
-        case 2:
-            printf("    PHY: 2 (2M)\n");
-            break;
-        case 3:
-            printf("    PHY: 3 (Coded S=8)\n");
-            break;
-        case 4:
-            printf("    PHY: 4 (Coded S=2)\n");
-            break;
-        default:
-            printf("    ERROR: Invalid phy (%d)\n", phy);
-            return;
+    
+    // Validate parameters
+    if (channel > 0x27) {
+        printf("ERROR: Invalid channel (must be 0x00-0x27)\n");
+        return;
+    }
+    if (length > 0x25) {
+        printf("ERROR: Invalid length (must be 0x00-0x25)\n");
+        return;
+    }
+    if (payload > 0x07) {
+        printf("ERROR: Invalid payload type (must be 0x00-0x07)\n");
+        return;
     }
 
-    uint8_t ch = _ble_mhz_to_tx_channel((int) frequency_mhz);
-
-    uint8_t cmd[7] = {0x34, 0x20, 0x04, ch, (uint8_t)length, (uint8_t)payload, (uint8_t)phy};
-    ble_test_active = true;
-    send_hci_command_bytes(cmd, 7);
+    hci_send_cmd(&hci_le_transmitter_test, channel, length, payload);
 }
 
 // Read the BDADDR
@@ -570,11 +513,10 @@ void cmd_help(void) {
     printf("    packet_length: 0-339\n");
     printf("    tx_power_dbm: 0-8\n");
     printf("  btc_stop                              - Stop BTC transmit test\n");
-    printf("  ble_tx <freq> <length> <payload> <phy>\n");
-    printf("    freq: Frequency in MHz (2402-2480)\n");
+    printf("  ble_tx <chan> <length> <payload>\n");
+    printf("    chan: BLE Channel\n");
     printf("    length: 1-255 (default 37)\n");
     printf("    payload: 0=PRBS9, 1=0xF0, 2=0xAA, 3=PRBS15, 4=all '1', 5=all '0', 6=0x0F, 7=0x55\n");
-    printf("    phy: 1=1M, 2=2M, 3=Coded S=8, 4=Coded S=2\n");
     printf("  ble_stop                              - Stop BLE transmit test\n");
     printf("\nRaw HCI Commands:\n");
     printf("  <hex_string>                          - Send raw HCI command\n");
@@ -585,6 +527,7 @@ void cmd_help(void) {
 
 // Parse and execute command
 void parse_and_execute_command(const char* command) {
+    printf("\n");
     if (strncmp(command, "help", 4) == 0) {
         cmd_help();
     } else if (strncmp(command, "btc_tx", 6) == 0) {
@@ -608,17 +551,17 @@ void parse_and_execute_command(const char* command) {
     } else if (strncmp(command, "bootloader", 6) == 0) {
         cmd_reset_bootloader();
     } else if (strncmp(command, "ble_tx", 6) == 0) {
-        // ble_tx <freq> <length> <payload> <phy>
+        // ble_tx <chan> <length> <payload>
         const char* params = command + 6;
         while (*params == ' ') params++;
-        int freq, length, payload, phy;
-        int parsed = sscanf(params, "%d %d %d %d", &freq, &length, &payload, &phy);
-        if (parsed == 4) {
-            printf("BLE TX: freq=%d, length=%d, payload=%d, phy=%d\n", freq, length, payload, phy);
-            cmd_start_ble_tx(freq, length, payload, phy);
+        int chan, length, payload;
+        int parsed = sscanf(params, "%d %d %d", &chan, &length, &payload);
+        if (parsed == 3) {
+            printf("BLE TX: chan=%d, length=%d, payload=%d\n", chan, length, payload);
+            cmd_start_ble_tx(chan, length, payload);
         } else {
-            printf("Error: ble_tx requires 4 parameters\n");
-            printf("Usage: ble_tx <freq> <length> <payload> <phy>\n");
+            printf("Error: ble_tx requires 3 parameters\n");
+            printf("Usage: ble_tx <chan> <length> <payload>\n");
         }
     } else if (strncmp(command, "ble_stop", 8) == 0) {
         cmd_stop_ble_tx();
