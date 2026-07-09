@@ -1,0 +1,4 @@
+# WiFi -> AP beacon -> default SSID
+3
+5
+1

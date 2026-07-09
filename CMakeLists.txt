@@ -35,7 +35,17 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(RM2_COMPLIANCE rm2-compliance.c )
+add_executable(RM2_COMPLIANCE
+    main.c
+    platform.c
+    test_ui.c
+    test_session.c
+    hci_common.c
+    test_btc.c
+    test_ble.c
+    test_wifi.c
+    wifi_lwip_stubs.c
+)
 
 pico_set_program_name(RM2_COMPLIANCE "RM2_COMPLIANCE")
 pico_set_program_version(RM2_COMPLIANCE "0.1")

@@ -1,0 +1,7 @@
+# Main -> BTLE -> TX test with channel 0, 37 bytes, PRBS9
+2
+1
+1
+0
+37
+0
