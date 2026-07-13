@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 #include "cyw43.h"
 #include "cyw43_config.h"
@@ -17,21 +18,44 @@
 #define WLC_UP 2
 #define WLC_DOWN 3
 #define WLC_OUT 26
+#define WLC_DISASSOC 52
 #define WLC_SET_BAND 142
-#define WL_TXPWR_OVERRIDE 0x80
+/*
+ * Official wlarm_le wl_txpwr1 -o -q N packs qtxpower as:
+ *   (N & 0xFF) | 0x80000000
+ * (override is bit 31, not the legacy 0x80-in-low-byte form).
+ */
+#define WL_TXPWR_OVERRIDE 0x80000000u
+#define WL_TXPWR_Q_MASK   0xFFu
+#define WL_TXPWR_PACK_MASK (WL_TXPWR_OVERRIDE | WL_TXPWR_Q_MASK)
 
 /* RPi Pico W 2 GHz WiFi Test Script default Q (txpwr1 -o -q 70). */
 #define WIFI_SCRIPT_DEFAULT_Q 70
 
-/* Official script always uses chanspec -w 20 -s 0 on 2.4 GHz. */
+/* Official script always uses chanspec -c N -b 2 -w 20 -s 0 on 2.4 GHz. */
 #define WL_CHANSPEC_BW_20 0x1000u
 #define WL_CHANSPEC_CTL_SB_NONE 0x0000u
 #define WL_CHANSPEC_BAND_2G 0x0000u
 
-/* Broadcom wl_pkteng flags (wlioctl.h). */
-#define WL_PKTENG_PER_TX_START 0x01u
+/*
+ * wlarm_le wl_rate packing (ioctl_version != 1):
+ *   -r N      → ratespec = N << 1          (500 kbps units)
+ *   -h M -b 20 → ratespec = M | 0x01000000 | 0x00010000
+ *                (HT encode | MCS | BW20)
+ */
+#define WL_RSPEC_ENCODE_HT 0x01000000u
+#define WL_RSPEC_BW_20     0x00010000u
+#define WL_RSPEC_HT_MCS_MASK 0x7Fu
 
-/* RPi script: wl pkteng_start 00:11:22:33:44:55 tx 20 1500 0 */
+/* Broadcom wl_pkteng flags (wlioctl.h / wlarm_le). */
+#define WL_PKTENG_PER_TX_START 0x01u
+#define WL_PKTENG_PER_TX_STOP  0x02u
+#define WL_PKTENG_PER_RX_START 0x04u
+#define WL_PKTENG_PER_RX_WITH_ACK 0x05u
+#define WL_PKTENG_PER_RX_STOP  0x08u
+#define WL_PKTENG_SYNCHRONOUS  0x100u
+
+/* RPi script: wl pkteng_start 00:11:22:33:44:55 tx|rx ... */
 static const uint8_t WIFI_SCRIPT_DEST_MAC[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
 
 /* Official Pico W 2 GHz script covers only these three modulations. */
@@ -41,18 +65,41 @@ typedef enum {
     WIFI_MODE_11N
 } wifi_mode_t;
 
-/* Must match Broadcom wl_pkteng_t layout (packed). Field order matters. */
-typedef struct __attribute__((packed)) {
+/*
+ * Must match Broadcom wl_pkteng_t from official wlarm_le (wlioctl.h DWARF):
+ * 29-byte payload + 3-byte trailing pad → 32 bytes total (align 4).
+ * Official setbuf length is 0x20. Field order matches wl pkteng_start.
+ */
+typedef struct {
     uint32_t flags;
-    uint32_t delay;   /* inter-packet delay (us) */
+    uint32_t delay;   /* Inter-packet gap (us) — script "ipg" */
     uint32_t nframes; /* 0 = continuous */
-    uint32_t length;  /* packet length */
+    uint32_t length;  /* Packet length — script "len" */
     uint8_t seqno;
     uint8_t dest[6];
     uint8_t src[6];
+    uint8_t _pad[3]; /* trailing alignment; wlarm_le sends these as zero */
 } wl_pkteng_t;
 
-_Static_assert(sizeof(wl_pkteng_t) == 29, "wl_pkteng_t must be 29 bytes packed");
+_Static_assert(sizeof(wl_pkteng_t) == 32, "wl_pkteng_t must match wlarm_le (32 bytes)");
+_Static_assert(offsetof(wl_pkteng_t, seqno) == 16, "seqno offset");
+_Static_assert(offsetof(wl_pkteng_t, dest) == 17, "dest offset");
+_Static_assert(offsetof(wl_pkteng_t, src) == 23, "src offset");
+
+/*
+ * wlarm_le DWARF wl_pkteng_stats (104 bytes, align 4).
+ * GET uses iovar "pkteng_stats" with 1-byte gain_correct param (0=default).
+ */
+typedef struct {
+    uint32_t lostfrmcnt;
+    int32_t rssi;
+    int32_t snr;
+    uint16_t rxpktcnt[45]; /* [0..11] legacy rates, [12..43] MCS0-31, [44] other */
+    uint8_t rssi_qdb;
+} wl_pkteng_stats_t;
+
+_Static_assert(sizeof(wl_pkteng_stats_t) == 104, "wl_pkteng_stats_t must match wlarm_le (104 bytes)");
+_Static_assert(offsetof(wl_pkteng_stats_t, rssi_qdb) == 102, "rssi_qdb offset");
 
 static void put_le32(uint8_t *buf, uint32_t val) {
     buf[0] = (uint8_t)(val & 0xFF);
@@ -119,6 +166,27 @@ static int wifi_get_iovar_buf(const char *var, uint8_t *buf, size_t buflen) {
     return wifi_ioctl(CYW43_IOCTL_GET_VAR, buflen, buf);
 }
 
+/* wlarm_le wlu_var_getbuf_sm: name + param bytes, then GET_VAR into roomy buffer. */
+static int wifi_get_iovar_with_param(const char *var, const void *param, size_t param_len,
+                                     void *out, size_t out_len) {
+    uint8_t buf[256];
+    size_t varlen = strlen(var) + 1;
+    if (out == NULL || out_len == 0 || varlen + param_len > sizeof(buf) || out_len > sizeof(buf)) {
+        return -1;
+    }
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, var, varlen);
+    if (param != NULL && param_len > 0) {
+        memcpy(buf + varlen, param, param_len);
+    }
+    int err = wifi_ioctl(CYW43_IOCTL_GET_VAR, sizeof(buf), buf);
+    if (err != 0) {
+        return err;
+    }
+    memcpy(out, buf, out_len);
+    return 0;
+}
+
 /* True if GET left the iovar name in the buffer (no numeric value returned). */
 static bool wifi_u32_is_name_echo(const char *var, uint32_t got) {
     uint8_t b[4] = {0, 0, 0, 0};
@@ -172,15 +240,13 @@ static bool wifi_set_and_verify_u32(const char *step, const char *var, uint32_t 
     return true;
 }
 
-/* Broadcom/Cypress ratespec: HT MCS encoded with WL_RSPEC_ENCODE_HT. */
-#define WL_RSPEC_ENCODE_HT 0x01000000u
-#define WL_RSPEC_HT_MCS_MASK 0x7Fu
+/* Broadcom/Cypress ratespec: HT MCS + optional BW from wlarm_le wl_rate. */
 
 /* 2g_rate readback is a ratespec; legacy rate or HT MCS in the low bits. */
 static bool wifi_rate_matches(uint32_t rate_val, uint32_t got) {
-    if (rate_val == WL_RSPEC_ENCODE_HT || (rate_val & 0xFF000000u) == WL_RSPEC_ENCODE_HT) {
+    if ((rate_val & 0xFF000000u) == WL_RSPEC_ENCODE_HT) {
         uint32_t exp_mcs = rate_val & WL_RSPEC_HT_MCS_MASK;
-        /* Prefer modern HT encode; also accept legacy 0x80|mcs write form readback. */
+        /* Prefer modern HT encode; BW bits may be dropped/remapped on readback. */
         if ((got & 0xFF000000u) == WL_RSPEC_ENCODE_HT &&
             (got & WL_RSPEC_HT_MCS_MASK) == exp_mcs) {
             return true;
@@ -429,15 +495,15 @@ static bool wifi_ioctl_cmd(uint32_t wlc_cmd) {
     return wifi_ioctl((wlc_cmd << 1) | 1, 0, dummy) == 0;
 }
 
-/* wl country ALL — special ccode unlocking all channels (wlioctl wl_country_t). */
+/*
+ * wl country ALL (single arg, no revision):
+ * wlarm_le sends only country_abbrev[4] = "ALL\0" via wlu_iovar_set(..., 4).
+ * Full 12-byte wl_country_t is used only when rev/ccode are also set.
+ */
 static bool wifi_set_and_verify_country_all(void) {
-    uint8_t country[4 + 4 + 4];
-    memset(country, 0, sizeof(country));
-    memcpy(country + 0, "ALL", 3);
-    put_le32(country + 4, (uint32_t)-1); /* rev unspecified */
-    memcpy(country + 8, "ALL", 3);
+    uint8_t country_abbrev[4] = {'A', 'L', 'L', '\0'};
 
-    int err = wifi_set_iovar_data("country", country, sizeof(country));
+    int err = wifi_set_iovar_data("country", country_abbrev, sizeof(country_abbrev));
     if (err != 0) {
         printf("  [FAIL] country ALL SET (error %d)\n", err);
         return false;
@@ -454,7 +520,6 @@ static bool wifi_set_and_verify_country_all(void) {
         printf("  [ OK ] country ALL SET ok; GET not readable on this FW\n");
         return true;
     }
-    /* Accept ALL / XX / abbreviated forms that contain ALL in the struct. */
     bool found_all = false;
     for (size_t i = 0; i + 3 <= sizeof(got); i++) {
         if (memcmp(&got[i], "ALL", 3) == 0) {
@@ -472,16 +537,16 @@ static bool wifi_set_and_verify_country_all(void) {
 }
 
 /*
- * Rates from RPi Pico W 2 GHz WiFi Test Script:
- *   11b: 2g_rate -r 1   → 1 Mbps = 2 in 500 kbps units
- *   11g: 2g_rate -r 6   → 6 Mbps = 12
- *   11n: 2g_rate -h 0 -b 20 → HT MCS0 ratespec (WL_RSPEC_ENCODE_HT | 0)
+ * Rates from RPi Pico W script + wlarm_le wl_rate:
+ *   11b: 2g_rate -r 1      → 1<<1 = 2
+ *   11g: 2g_rate -r 6      → 6<<1 = 12
+ *   11n: 2g_rate -h 0 -b 20 → MCS0 | HT | BW20 = 0x01010000
  */
 static uint32_t wifi_rate_value(wifi_mode_t mode) {
     switch (mode) {
-        case WIFI_MODE_11B: return 2;
-        case WIFI_MODE_11G: return 12;
-        case WIFI_MODE_11N: return WL_RSPEC_ENCODE_HT; /* MCS0 */
+        case WIFI_MODE_11B: return 2u;
+        case WIFI_MODE_11G: return 12u;
+        case WIFI_MODE_11N: return WL_RSPEC_ENCODE_HT | WL_RSPEC_BW_20; /* MCS0 HT20 */
         default: return 0;
     }
 }
@@ -545,11 +610,7 @@ static bool wifi_script_common_preamble(void) {
     if (!wifi_set_and_verify_u32("mimo_bw_cap", "mimo_bw_cap", 1, 0xFFFFFFFFu)) {
         failed++;
     }
-    /* HT MCS rates need nmode on; harmless for 11b/g. */
-    if (!wifi_set_and_verify_u32("nmode", "nmode", 1, 0xFFFFFFFFu)) {
-        failed++;
-    }
-    /* Prefer WLC_SET_BAND (matches host `wl band b`). */
+    /* Prefer WLC_SET_BAND (wlarm_le: wlu_set(WLC_SET_BAND=0x8e), value 2 for "b"). */
     {
         uint8_t band_buf[4];
         put_le32(band_buf, 2); /* WLC_BAND_2G */
@@ -577,9 +638,9 @@ static bool wifi_script_common_preamble(void) {
 
 /* Low-level form of: wl txpwr1 -o -q <Q> */
 static bool wifi_set_and_verify_txpwr_q(int q_value) {
-    uint32_t pwr = ((uint32_t)q_value & 0xFFu) | WL_TXPWR_OVERRIDE;
+    uint32_t pwr = ((uint32_t)q_value & WL_TXPWR_Q_MASK) | WL_TXPWR_OVERRIDE;
     return wifi_set_and_verify_u32("qtxpower (txpwr1 -o -q)", "qtxpower",
-                                   pwr, 0xFFu | WL_TXPWR_OVERRIDE);
+                                   pwr, WL_TXPWR_PACK_MASK);
 }
 
 static bool wifi_start_pkteng_tx(const uint8_t dest[6]) {
@@ -608,6 +669,213 @@ static bool wifi_start_pkteng_tx(const uint8_t dest[6]) {
         return false;
     }
     return true;
+}
+
+/* wl pkteng_stop tx|rx — same 32-byte pkteng iovar, flags only. */
+static bool wifi_pkteng_stop(bool rx) {
+    wl_pkteng_t pkteng;
+    memset(&pkteng, 0, sizeof(pkteng));
+    pkteng.flags = rx ? WL_PKTENG_PER_RX_STOP : WL_PKTENG_PER_TX_STOP;
+    int err = wifi_set_iovar_data("pkteng", &pkteng, sizeof(pkteng));
+    return wifi_set_action_ok(rx ? "pkteng_stop rx" : "pkteng_stop tx", err);
+}
+
+/*
+ * wl pkteng_start <mac> rx|rxwithack [async|sync [rxframes rxtimeout]]
+ * Default lab path: async RX (flags=4), dest MAC = peer/filter address.
+ */
+static bool wifi_start_pkteng_rx(const uint8_t dest[6], bool with_ack, bool sync,
+                                 uint32_t rxframes, uint32_t rxtimeout_ms) {
+    wl_pkteng_t pkteng;
+    memset(&pkteng, 0, sizeof(pkteng));
+
+    pkteng.flags = with_ack ? WL_PKTENG_PER_RX_WITH_ACK : WL_PKTENG_PER_RX_START;
+    if (sync) {
+        pkteng.flags |= WL_PKTENG_SYNCHRONOUS;
+        pkteng.nframes = rxframes;
+        pkteng.delay = rxtimeout_ms;
+    }
+    memcpy(pkteng.dest, dest, 6);
+
+    wifi_print_mac("pkteng RX filter dest", dest);
+    printf("  pkteng RX: flags=0x%04lX%s%s nframes=%lu delay/timeout=%lu\n",
+           (unsigned long)pkteng.flags,
+           with_ack ? " (rxwithack)" : " (rx)",
+           sync ? " sync" : " async",
+           (unsigned long)pkteng.nframes,
+           (unsigned long)pkteng.delay);
+
+    int err = wifi_set_iovar_data("pkteng", &pkteng, sizeof(pkteng));
+    if (!wifi_set_action_ok("pkteng_start rx", err)) {
+        wifi_print_ioctl_help();
+        return false;
+    }
+    return true;
+}
+
+/* wl pkteng_stats [-g 0|1] — gain_correct default 0. */
+static bool wifi_get_pkteng_stats(wl_pkteng_stats_t *stats_out, uint8_t gain_correct) {
+    if (stats_out == NULL) {
+        return false;
+    }
+    memset(stats_out, 0, sizeof(*stats_out));
+    int err = wifi_get_iovar_with_param("pkteng_stats", &gain_correct, 1,
+                                        stats_out, sizeof(*stats_out));
+    if (err != 0) {
+        printf("  [FAIL] pkteng_stats GET (error %d)\n", err);
+        return false;
+    }
+    return true;
+}
+
+static uint32_t wifi_sum_rxpktcnt(const wl_pkteng_stats_t *stats) {
+    uint32_t total = 0;
+    for (int i = 0; i < 45; i++) {
+        total += stats->rxpktcnt[i];
+    }
+    return total;
+}
+
+static void wifi_print_pkteng_stats(const wl_pkteng_stats_t *stats) {
+    /* Match wlarm_le wl_pkteng_stats printout (legacy rate index mapping). */
+    printf("Lost frame count %lu\n", (unsigned long)stats->lostfrmcnt);
+    printf("RSSI %ld\n", (long)stats->rssi);
+    printf("Signal to noise ratio %ld\n", (long)stats->snr);
+    printf("rx1mbps %u rx2mbps %u rx5mbps5 %u\n"
+           "rx6mbps %u rx9mbps %u, rx11mbps %u\n"
+           "rx12mbps %u rx18mbps %u rx24mbps %u\n"
+           "rx36mbps %u rx48mbps %u rx54mbps %u\n",
+           (unsigned)stats->rxpktcnt[3], (unsigned)stats->rxpktcnt[1], (unsigned)stats->rxpktcnt[2],
+           (unsigned)stats->rxpktcnt[7], (unsigned)stats->rxpktcnt[11], (unsigned)stats->rxpktcnt[0],
+           (unsigned)stats->rxpktcnt[6], (unsigned)stats->rxpktcnt[10], (unsigned)stats->rxpktcnt[5],
+           (unsigned)stats->rxpktcnt[9], (unsigned)stats->rxpktcnt[4], (unsigned)stats->rxpktcnt[8]);
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 4; j++) {
+            int mcs = i * 4 + j;
+            printf("rxmcs%d %u ", mcs, (unsigned)stats->rxpktcnt[12 + mcs]);
+        }
+        printf("\n");
+    }
+    printf("rxmcsother %u\n", (unsigned)stats->rxpktcnt[44]);
+    printf("Total rxpktcnt sum %lu  rssi_qdb %u\n",
+           (unsigned long)wifi_sum_rxpktcnt(stats), (unsigned)stats->rssi_qdb);
+}
+
+/* Shared radio bring-up through scansuppress (same as TX script after rate). */
+static bool wifi_script_bringup_for_pkteng(wifi_mode_t mode, int channel) {
+    uint16_t chanspec = wifi_build_chanspec(channel);
+    uint32_t rate = wifi_rate_value(mode);
+    bool success = true;
+
+    if (!wifi_prepare_interface()) {
+        success = false;
+    }
+    if (!wifi_script_common_preamble()) {
+        success = false;
+    }
+    if (!wifi_set_and_verify_u32("chanspec", "chanspec", chanspec, 0xFFFFu)) {
+        success = false;
+    }
+    if (rate == 0 || !wifi_set_and_verify_rate("2g_rate", rate)) {
+        success = false;
+    }
+    if (!wifi_set_action_ok("WLC_UP", wifi_ioctl_cmd(WLC_UP) ? 0 : -1)) {
+        success = false;
+    } else {
+        sleep_ms(50);
+        (void)wifi_verify_isup(1, "after up");
+    }
+    if (!wifi_set_action_ok("WLC_DISASSOC (wl disassoc)",
+                            wifi_ioctl_cmd(WLC_DISASSOC) ? 0 : -1)) {
+        success = false;
+    }
+    if (!wifi_set_action_ok("phy_forcecal", wifi_set_iovar_u32("phy_forcecal", 1))) {
+        success = false;
+    }
+    if (!wifi_set_and_verify_u32("scansuppress", "scansuppress", 1, 0xFFFFFFFFu)) {
+        success = false;
+    }
+    return success;
+}
+
+static bool wifi_run_rx_test(wifi_mode_t mode, int channel, bool with_ack) {
+    bool success = true;
+    char details[96];
+    int mhz = ui_wifi_channel_to_mhz(channel);
+
+    printf("\nStarting %s RX (wlarm_le pkteng_start … rx):\n", wifi_mode_name(mode));
+    printf("  Rate context: %s\n", wifi_mode_rate_note(mode));
+    printf("  Channel: %d (%d MHz)\n", channel, mhz);
+    printf("  Mode: %s async\n", with_ack ? "rxwithack" : "rx");
+    wifi_print_mac("Filter dest (script MAC)", WIFI_SCRIPT_DEST_MAC);
+    printf("\n");
+
+    if (!wifi_script_bringup_for_pkteng(mode, channel)) {
+        success = false;
+    }
+
+    if (!wifi_start_pkteng_rx(WIFI_SCRIPT_DEST_MAC, with_ack, false, 0, 0)) {
+        success = false;
+    }
+
+    snprintf(details, sizeof(details), "RX Ch %d (%d MHz), %s", channel, mhz,
+             with_ack ? "rxwithack" : "rx");
+
+    printf("\n========================================\n");
+    printf("  %s RX\n", wifi_mode_name(mode));
+    if (success) {
+        printf("  STATUS: CONFIRMED RUNNING\n");
+        printf("========================================\n");
+        printf("%s\n", details);
+        printf("Polling pkteng_stats — Press Enter to stop RX.\n\n");
+        test_session_set_running("WiFi pkteng RX", details);
+
+        uint32_t poll = 0;
+        while (ui_serial_connected()) {
+            ui_poll_escape();
+            int c = getchar_timeout_us(0);
+            if (c == '\r' || c == '\n') {
+                break;
+            }
+            if (c == 0x03 || c == 0x1B) {
+                /* Escape path reboots via ui_poll_escape / read path. */
+                break;
+            }
+
+            if ((poll % 20u) == 0u) { /* ~ every 2s (100ms sleep * 20) */
+                wl_pkteng_stats_t stats;
+                printf("--- pkteng_stats ---\n");
+                if (wifi_get_pkteng_stats(&stats, 0)) {
+                    wifi_print_pkteng_stats(&stats);
+                }
+                printf("\n");
+                fflush(stdout);
+            }
+            poll++;
+            sleep_ms(100);
+        }
+
+        printf("Stopping RX (wl pkteng_stop rx)...\n");
+        (void)wifi_pkteng_stop(true);
+
+        wl_pkteng_stats_t final_stats;
+        printf("\n=== Final pkteng_stats ===\n");
+        if (wifi_get_pkteng_stats(&final_stats, 0)) {
+            wifi_print_pkteng_stats(&final_stats);
+        }
+    } else {
+        printf("  STATUS: FAILED TO START\n");
+        printf("========================================\n");
+        printf("%s\n", details);
+        printf("A SET or readback verify failed — see steps above.\n");
+        test_session_set_failed("WiFi pkteng RX", details);
+        (void)wifi_pkteng_stop(true);
+    }
+
+    printf("\n");
+    fflush(stdout);
+    ui_wait_for_ack("Press Enter to return to the menu...");
+    return success;
 }
 
 static bool wifi_run_tx_test(wifi_mode_t mode, int channel, int q_value) {
@@ -650,7 +918,9 @@ static bool wifi_run_tx_test(wifi_mode_t mode, int channel, int q_value) {
         (void)wifi_verify_isup(1, "after up");
     }
 
-    if (!wifi_set_action_ok("disassoc", wifi_set_iovar_u32("disassoc", 0))) {
+    /* wl disassoc → WLC_DISASSOC void ioctl (not an iovar). */
+    if (!wifi_set_action_ok("WLC_DISASSOC (wl disassoc)",
+                            wifi_ioctl_cmd(WLC_DISASSOC) ? 0 : -1)) {
         success = false;
     }
 
@@ -789,4 +1059,66 @@ void test_wifi_run_mode(int mode_menu_id) {
             return;
     }
     run_wifi_mode_flow(mode);
+}
+
+static bool wifi_pick_rx_mode(wifi_mode_t *mode_out) {
+    int choice = 0;
+    printf("Select rate context for RX (sets 2g_rate like TX script):\n");
+    printf("  1) 802.11b  (2g_rate -r 1)\n");
+    printf("  2) 802.11g  (2g_rate -r 6)\n");
+    printf("  3) 802.11n  (2g_rate -h 0 -b 20)\n");
+    if (!ui_read_choice("Enter choice: ", 1, 3, &choice)) {
+        return false;
+    }
+    switch (choice) {
+        case 1:
+            *mode_out = WIFI_MODE_11B;
+            break;
+        case 2:
+            *mode_out = WIFI_MODE_11G;
+            break;
+        case 3:
+            *mode_out = WIFI_MODE_11N;
+            break;
+        default:
+            return false;
+    }
+    return true;
+}
+
+static void run_wifi_rx_flow(void) {
+    wifi_mode_t mode = WIFI_MODE_11B;
+    int channel = 0;
+    int ack_choice = 0;
+    bool with_ack = false;
+
+    ui_clear_screen();
+    ui_print_reboot_notice();
+
+    printf("\n--- Packet Engine RX Test ---\n");
+    printf("Matches wlarm_le: pkteng_start 00:11:22:33:44:55 rx [async]\n");
+    printf("  Then polls pkteng_stats until Enter; stops with pkteng_stop rx.\n");
+    printf("  Dest MAC filter: 00:11:22:33:44:55 (same as TX script).\n");
+    printf("  Point a second board / golden TX at this channel to see counters.\n\n");
+
+    if (!wifi_pick_rx_mode(&mode)) {
+        return;
+    }
+    if (!wifi_pick_channel(&channel)) {
+        return;
+    }
+
+    printf("\nRX variant:\n");
+    printf("  1) rx         (flags=0x04, no ACK)\n");
+    printf("  2) rxwithack  (flags=0x05)\n");
+    if (!ui_read_choice("Enter choice: ", 1, 2, &ack_choice)) {
+        return;
+    }
+    with_ack = (ack_choice == 2);
+
+    wifi_run_rx_test(mode, channel, with_ack);
+}
+
+void test_wifi_run_rx(void) {
+    run_wifi_rx_flow();
 }

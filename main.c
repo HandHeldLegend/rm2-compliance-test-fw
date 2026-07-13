@@ -39,7 +39,8 @@ static void show_main_menu(void) {
     printf("  1) 802.11b continuous TX (script)\n");
     printf("  2) 802.11g continuous TX (script)\n");
     printf("  3) 802.11n continuous TX (script)\n");
-    printf("  4) Reboot to USB bootloader (flash new firmware)\n");
+    printf("  4) Packet engine RX (pkteng_stats)\n");
+    printf("  5) Reboot to USB bootloader (flash new firmware)\n");
 #else
 #error "Build must enable RM2_ENABLE_BT or RM2_ENABLE_WIFI"
 #endif
@@ -69,7 +70,7 @@ static void run_main_menu(void) {
                 break;
         }
 #elif RM2_ENABLE_WIFI
-        if (!ui_read_choice("Enter choice: ", 1, 4, &choice)) {
+        if (!ui_read_choice("Enter choice: ", 1, 5, &choice)) {
             continue;
         }
         switch (choice) {
@@ -83,6 +84,9 @@ static void run_main_menu(void) {
                 test_wifi_run_mode(WIFI_MODE_MENU_11N);
                 break;
             case 4:
+                test_wifi_run_rx();
+                break;
+            case 5:
                 platform_reboot_to_bootloader();
                 break;
             default:

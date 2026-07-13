@@ -7,5 +7,6 @@
 #define WIFI_MODE_MENU_11N  2
 
 void test_wifi_run_mode(int mode_menu_id);
+void test_wifi_run_rx(void);
 
 #endif
