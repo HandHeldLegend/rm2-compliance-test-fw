@@ -1,6 +1,0 @@
-set(BT_ON_PIN 23)
-set(BT_DATA_OUT_PIN 24)
-set(BT_DATA_IN_PIN  24)
-set(BT_WAKE_PIN     24)
-set(BT_CLOCK_PIN    29)
-set(BT_CS_PIN       25)

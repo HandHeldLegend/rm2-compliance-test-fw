@@ -114,6 +114,4 @@ void test_ble_menu(void) {
 
         run_ble_tx_flow();
     }
-
-    platform_shutdown_btstack();
 }

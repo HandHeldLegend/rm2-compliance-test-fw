@@ -69,6 +69,18 @@ static void run_btc_tx_flow(void) {
         return;
     }
 
+    /* Leave any prior LE/vendor test mode before Classic RF test. */
+    printf("HCI reset before BTC TX...\n");
+    if (!hci_do_reset_wait(3000)) {
+        printf("ERROR: HCI reset failed.\n");
+        return;
+    }
+    sleep_ms(100);
+    if (!hci_read_bdaddr_wait(5000)) {
+        printf("ERROR: Timed out reading BD_ADDR after reset.\n");
+        return;
+    }
+
     printf("Select hopping mode:\n");
     printf("  0) 79-channel hopping\n");
     printf("  1) Single frequency\n");
@@ -104,7 +116,8 @@ static void run_btc_tx_flow(void) {
         return;
     }
 
-    if (!ui_read_int_in_range("Enter TX power in dBm (0-8): ", 0, 8, &tx_power_dbm)) {
+    /* Infineon Tx_Test (0xFC51) accepts about -25..+3 dBm in dBm mode. */
+    if (!ui_read_int_in_range("Enter TX power in dBm (0-3): ", 0, 3, &tx_power_dbm)) {
         return;
     }
 
@@ -153,6 +166,4 @@ void test_btc_menu(void) {
 
         run_btc_tx_flow();
     }
-
-    platform_shutdown_btstack();
 }

@@ -150,6 +150,15 @@ void hci_do_reset(void) {
     hci_send_cmd(&hci_reset);
 }
 
+bool hci_do_reset_wait(uint32_t timeout_ms) {
+    ble_test_active = false;
+    btc_test_active = false;
+    got_bdaddr = false;
+    hci_begin_wait(hci_reset.opcode);
+    hci_send_cmd(&hci_reset);
+    return hci_wait_complete(timeout_ms);
+}
+
 void hci_read_bdaddr(void) {
     got_bdaddr = false;
 
@@ -184,20 +193,24 @@ bool hci_start_btc_tx(uint8_t hopping_mode, uint32_t frequency_mhz, uint8_t modu
         return false;
     }
 
+    /* Infineon/Broadcom Tx_Test (0xFC51) param order:
+     * BD_ADDR, Hopping_Mode, Frequency, Modulation, Logical_Channel,
+     * BB_Packet_Type, BB_Packet_Length(le16), Tx_Power_Level, Power, TableIndex.
+     * Hopping_Mode=1 + Frequency=(mhz-2402) is single-frequency lab TX. */
     uint32_t freq_idx = frequency_mhz - 2402;
     uint8_t cmd[19] = {
         (uint8_t)(OPCODE_BTC_TX_TEST & 0xFF),
         (uint8_t)((OPCODE_BTC_TX_TEST >> 8) & 0xFF),
         16,
         bdaddr[0], bdaddr[1], bdaddr[2], bdaddr[3], bdaddr[4], bdaddr[5],
-        (uint8_t)freq_idx,
         hopping_mode,
+        (uint8_t)freq_idx,
         modulation_type,
         logical_channel,
         packet_type,
         (uint8_t)(packet_length & 0xFF),
         (uint8_t)((packet_length >> 8) & 0xFF),
-        0x08,
+        0x08, /* specify power in dBm */
         transmit_power_dbm,
         0x00
     };

@@ -11,42 +11,59 @@ This guide explains how to flash the firmware, connect with **PuTTY** (or anothe
 - [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.2.0 (or compatible)
 - CMake and Ninja
 - `picotool` (included with the Pico SDK)
+- For WiFi UF2s: local MFG firmware extract (NDA) — see [`firmware/README.md`](firmware/README.md)
 
-### Build
+### Build (two UF2s per board)
+
+One `cmake --build` produces **Bluetooth (stock)** and **WiFi (MFG)** images for every
+pinout under [`board_pinouts/`](board_pinouts/):
 
 ```bash
 cd rm2-compliance-test-fw
-mkdir build
-cd build
-cmake ..
-cmake --build .
+# NDA holders — once:
+python tools/extract_mfg_fw_from_uf2.py path/to/picow-wifi-mfg-tester.uf2
+
+cmake -B build
+cmake --build build
 ```
 
-The UF2/ELF output is `build/RM2_COMPLIANCE.uf2` (or `.elf`).
+| Board | Bluetooth / BLE (stock FW) | WiFi pkteng (MFG FW) |
+|-------|----------------------------|----------------------|
+| Raspberry Pi Pico W | `build/RM2_COMPLIANCE_picow_bt.uf2` | `build/RM2_COMPLIANCE_picow_wifi.uf2` |
+| GC Ultimate 2 | `build/RM2_COMPLIANCE_gcu2_bt.uf2` | `build/RM2_COMPLIANCE_gcu2_wifi.uf2` |
+
+Each image only exposes its own tests (no mixed BT+WiFi menu on one UF2).
+
+Add another board by dropping `board_pinouts/<name>.cmake` (see that folder’s README).
 
 ### Flash
 
 **Option A — USB bootloader (drag-and-drop)**
 
 1. Hold **BOOTSEL** on the Pico, plug in USB, release BOOTSEL.
-2. Copy `RM2_COMPLIANCE.uf2` to the **RPI-RP2** drive.
+2. Copy the matching UF2 to the **RPI-RP2** drive
+   (e.g. `RM2_COMPLIANCE_picow_bt.uf2` for Pico W Bluetooth tests).
 
 **Option B — From the running firmware**
 
 1. Connect serial (see below).
-2. At the main menu, choose **4) Reboot to USB bootloader**.
+2. At the main menu, choose the **Reboot to USB bootloader** item
+   (option **3** on BT builds, option **4** on WiFi builds).
 3. Copy the new UF2 when the drive appears.
 
 **Option C — picotool**
 
 ```bash
-picotool load -f build/RM2_COMPLIANCE.elf
+picotool load -f build/RM2_COMPLIANCE_picow_bt.elf
 picotool reboot
 ```
 
-### Custom GPIO (production board)
+### Board pinouts
 
-If you are not using default Pico W pins, configure `EDIT_RM2_GPIO_PINS.cmake` before building. That file is included automatically by `CMakeLists.txt` when present.
+CYW43439 GPIOs live under [`board_pinouts/`](board_pinouts/). Each `.cmake`
+file sets `BOARD_NAME` (shown in the serial banner) plus the pin map.
+Flash the UF2 that matches your hardware **and** test category — the banner
+shows board name, pinout id, and build variant.
 
 ---
 
@@ -55,279 +72,87 @@ If you are not using default Pico W pins, configure `EDIT_RM2_GPIO_PINS.cmake` b
 1. Plug the board in over USB.
 2. Open **Device Manager** → **Ports (COM & LPT)**.
 3. Look for **USB Serial Device (COMx)** — Raspberry Pi boards use vendor ID **2E8A**.
-
-Example: `USB Serial Device (COM6)`.
-
-> **Note:** Only one program can use the port at a time. Close PuTTY, Arduino Serial Monitor, or other tools before using a different client.
+4. Note the COM number for PuTTY.
 
 ---
 
 ## 3. Connect with PuTTY
 
-### Download
+1. Open PuTTY.
+2. **Connection type:** Serial.
+3. **Serial line:** `COMx` (from Device Manager).
+4. **Speed:** `115200`.
+5. Click **Open**.
+6. Press **Enter** once if the menu does not appear immediately.
 
-Get PuTTY from [https://www.putty.org/](https://www.putty.org/) if it is not already installed.
-
-### Session settings
-
-| Setting | Value |
-|--------|--------|
-| Connection type | **Serial** |
-| Serial line | Your COM port (e.g. `COM6`) |
-| Speed (baud) | **115200** |
-
-### Recommended terminal options
-
-Open **Terminal** in the left tree:
-
-- **Local echo**: *Force on* (optional — you will see what you type)
-- **Local line editing**: *Force on* (optional — line is sent when you press Enter)
-
-Open **Serial** in the left tree (if shown):
-
-- **Data bits**: 8  
-- **Stop bits**: 1  
-- **Parity**: None  
-- **Flow control**: None  
-
-### Connect
-
-1. Click **Open**.
-2. A black terminal window appears.
-3. If the menu does not show immediately, press **Enter** once or unplug/replug USB.
-
-You should see:
-
-```
-================================================
-  RM2 Compliance Test Firmware
-  GC Ultimate 2 - Regulatory Testing
-================================================
-
-Select test category:
-  1) BT Classic Tests
-  2) BTLE Tests
-  3) WiFi Tests
-  4) Reboot to USB bootloader (flash new firmware)
-
-Enter choice:
-```
-
-### Save the session (optional)
-
-1. Enter the COM port and speed on the main screen.
-2. Type a name under **Saved Sessions** → **Save**.
-3. Next time, select the session and click **Load** before **Open**.
+You should see a banner with board name, pinout id, and build variant, then the
+main menu for that UF2.
 
 ---
 
 ## 4. Using the menus
 
-### Input
+- Enter the number shown and press **Enter**.
+- Invalid input is rejected with a retry prompt.
+- After a test starts (or fails), press **Enter** to return to the menu when prompted.
+- **Ctrl+C** or **Esc** reboots the application firmware (not bootloader).
 
-- Type a **number** for your choice and press **Enter**.
-- Menus accept values in the shown range (e.g. `1`–`4` on the main menu).
-- After a test finishes, read the **STATUS** line, then press **Enter** when prompted:
-  ```
-  Press Enter to return to the menu...
-  ```
-
-### Screen clears
-
-The firmware clears the terminal between screens for readability. Scrollback in PuTTY (**Window** → increase **Lines of scrollback**) helps if you need to review earlier output.
-
-### Active test banner
-
-While a test is running, menus show a banner at the top:
-
-```
-************************************************
-  ACTIVE TEST: 802.11b
-  Ch 6 (2437 MHz), TX 16.75 dBm (Q=67)
-  Status: CONFIRMED RUNNING
-  Stop: power off the device
-************************************************
-```
-
-### Keyboard shortcuts
-
-| Key | Action |
-|-----|--------|
-| **Ctrl+C** or **Esc** | Reboot firmware (fresh start, stays in application) |
-| **Main menu → 4** | Reboot to **USB bootloader** (for flashing only) |
-| **Power off** | Stop RF transmission and return to menus after reconnect |
-
----
-
-## 5. Test procedures
-
-### 5.1 BT Classic TX
-
-**Path:** Main menu → `1` → `1` (Start TX test)
-
-You will be prompted for:
-
-- Hopping mode (79-channel vs single frequency)
-- Frequency (2402–2480 MHz)
-- Modulation type, logical channel, packet type
-- Packet length and TX power (0–8 dBm)
-
-On success:
-
-```
-========================================
-  BT Classic TX Test
-  STATUS: CONFIRMED RUNNING
-========================================
-```
-
-The controller must return HCI status `0x00` before this appears.
-
----
-
-### 5.2 BLE TX
-
-**Path:** Main menu → `2` → `1`
-
-You will be prompted for:
-
-- Channel index (0–39) or center frequency in MHz
-- Packet length (0–37 bytes)
-- Payload pattern (0–7)
-
-Uses HCI LE Transmitter Test (`0x201E`). Success shows **STATUS: CONFIRMED RUNNING**.
-
----
-
-### 5.3 WiFi tests
-
-**Path:** Main menu → `3`
+### Bluetooth build (`*_bt.uf2`)
 
 | Menu | Description |
 |------|-------------|
-| `1` | 802.11b continuous TX (pkteng) |
-| `2` | 802.11g continuous TX |
-| `3` | 802.11n HT20 continuous TX |
-| `4` | 802.11n HT40 continuous TX |
-| `5` | Open AP beacon (sanity check) |
-| `0` | Back to main menu |
+| `1` | BT Classic TX |
+| `2` | BTLE TX |
+| `3` | Reboot to USB bootloader |
 
-#### Channel selection
+### WiFi build (`*_wifi.uf2`)
 
-Each TX mode offers lab presets:
+Official RPi Pico W 2 GHz script modulations only:
 
-- **11b / 11g / 11n HT20:** channels 1, 6, 11 (2412 / 2437 / 2462 MHz)
-- **11n HT40:** channels 3, 6, 9 (2422 / 2437 / 2452 MHz)
+| Menu | Description | Script rate |
+|------|-------------|-------------|
+| `1` | 802.11b continuous TX | `2g_rate -r 1` |
+| `2` | 802.11g continuous TX | `2g_rate -r 6` |
+| `3` | 802.11n continuous TX (HT20 MCS0) | `2g_rate -h 0 -b 20` |
+| `4` | Reboot to USB bootloader |
 
-You can also enter a channel or frequency manually.
+Selectable: channel (`-c`) and TX power Q (`-q`). Dest MAC is fixed to
+`00:11:22:33:44:55`. Bandwidth is always 20 MHz.
 
-#### TX power
+#### Confirmation (WiFi)
 
-Power is set via the Broadcom `qtxpower` iovar in **quarter-dBm** units:
+Each script value SET is followed by a GET where possible. `[ OK ]` means
+readback matched, or this firmware does not expose a readable value for that
+iovar (SET was still accepted). Action-only commands note when there is no
+value readback.
 
-```
-dBm = Q / 4
-```
-
-Example: **Q=67** → **16.75 dBm**
-
-Options:
-
-1. **Use recommended power** — values from the Raspberry Pi RP-002513-TE regulatory tables (varies by mode and channel)
-2. **Enter Q-value** (0–127)
-3. **Enter target power in dBm** (steps of 0.25, e.g. `16.75`)
-
-#### Confirmation
-
-During startup you will see driver steps marked `[ OK ]` or `[FAIL]`, then:
-
-```
-========================================
-  802.11b
-  STATUS: CONFIRMED RUNNING
-========================================
-```
-
-**CONFIRMED RUNNING** means all driver commands succeeded. Verify actual RF output with your spectrum analyzer or power meter.
-
-#### AP beacon test (recommended WiFi sanity check)
-
-**Path:** WiFi menu → `5` → `1` (default SSID `RM2_COMPLIANCE_TEST`)
-
-Look for that SSID on a phone, laptop, or WiFi scanner. No pkteng/MFG firmware is required for this test.
-
-#### WiFi tips
-
-- If you ran Bluetooth tests first, **power-cycle** before pkteng TX.
-- Pkteng regulatory TX may require **MFG test firmware** on some setups; the AP beacon test is the simplest WiFi check.
+**Important:** Continuous TX RF must be verified with lab spectrum equipment.
+Use the WiFi/MFG UF2 for regulatory TX ([`firmware/README.md`](firmware/README.md)).
 
 ---
 
-## 6. Stopping a test
+## 5. Stopping a test
 
 | Goal | Method |
 |------|--------|
 | Stop RF and return to menus | **Power off** the device, reconnect USB, reopen PuTTY |
 | Restart firmware cleanly | **Ctrl+C** or **Esc** in the terminal |
-| Flash new firmware | Main menu → **4** (USB bootloader) |
+| Flash new firmware | Main menu → bootloader item |
 
 ---
 
-## 7. Optional: Python serial automation
-
-For scripted testing (CI or repeated lab runs):
+## 6. Optional: Python serial automation
 
 ```bash
-pip install -r tools/requirements.txt
-```
-
-```bash
-# Read output for a few seconds
-python tools/rm2_serial.py read --seconds 3 --port COM6
-
-# Send one menu choice
-python tools/rm2_serial.py send --line 3 --wait 2 --port COM6
-
-# Run all WiFi tests (reboots first, then walks each mode)
-python tools/verify_wifi_tests.py
-```
-
-Change `--port COM6` to match your system.
-
-> Close PuTTY before running these scripts — only one client can own the COM port.
-
----
-
-## 8. Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|----------------|-----|
-| PuTTY says port unavailable | Another app has COM open | Close other serial monitors |
-| `Invalid input` after every choice | Rare line-ending issue | Update firmware; use Enter only once per choice |
-| Menu disappears instantly after test | Old firmware without “Press Enter” | Reflash latest build |
-| WiFi pkteng `[FAIL]` | MFG firmware / bus contention | Try AP beacon test; power-cycle after BT |
-| No menu until keypress | Normal USB CDC behavior | Press Enter after opening PuTTY |
-| BT test times out on BD_ADDR | BTstack still starting | Wait and retry; reboot with Ctrl+C |
-
----
-
-## 9. Quick reference — main menu
-
-```
-1  BT Classic Tests     → BTC vendor TX (HCI 0xFC51)
-2  BTLE Tests           → BLE LE TX test (HCI 0x201E)
-3  WiFi Tests           → 11b/g/n pkteng + AP beacon
-4  USB bootloader       → Flash only (not a normal reboot)
+python tools/rm2_serial.py --port COMx
+python tools/verify_wifi_tests.py   # WiFi/MFG UF2
 ```
 
 ---
 
-## 10. Lab checklist
+## 7. Quick reference
 
-- [ ] Firmware built and flashed  
-- [ ] COM port identified in Device Manager  
-- [ ] PuTTY: Serial, 115200 baud, correct COM port  
-- [ ] Main menu visible  
-- [ ] Test started → **CONFIRMED RUNNING** seen  
-- [ ] RF verified on bench equipment  
-- [ ] Device powered off between major test changes when needed  
+| UF2 | Tests |
+|-----|-------|
+| `RM2_COMPLIANCE_<board>_bt.uf2` | BT Classic + BLE (stock CYW43) |
+| `RM2_COMPLIANCE_<board>_wifi.uf2` | 802.11b/g/n script TX (MFG CYW43) |

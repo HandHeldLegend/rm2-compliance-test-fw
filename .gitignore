@@ -1,4 +1,36 @@
-build
-!.vscode/*
-
+# Build / IDE
+build/
 .vscode/
+compile_commands.json
+CMakeUserPresets.json
+CMakeCache.txt
+cmake-build-*/
+
+# Python / script runtime junk
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.log
+*.tmp
+tools/_last_*.txt
+
+# Local scratch / one-off probe trees
+probe/
+
+# ---------------------------------------------------------------------------
+# PROPRIETARY — do not commit or publish
+# CYW43439 manufacturing (MFG / WLTEST) Wi-Fi firmware obtained under NDA
+# from Raspberry Pi (e.g. picow-wifi-mfg-tester.uf2) and local extracts.
+# See firmware/README.md for NDA-holder extract instructions.
+# ---------------------------------------------------------------------------
+firmware/mfg_cyw43_fw.h
+firmware/43439A0_mfg_combined.bin
+firmware/*.uf2
+firmware/*mfg*.bin
+firmware/*mfg*.h
+**/picow-wifi-mfg-tester.uf2
+**/picow-wifi-mfg-tester*.uf2

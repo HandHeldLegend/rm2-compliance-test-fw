@@ -6,10 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rm2_build_info.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "platform.h"
 #include "test_session.h"
+
+#ifndef RM2_ENABLE_WIFI
+#define RM2_ENABLE_WIFI 0
+#endif
 
 #define UI_LINE_MAX 128
 
@@ -25,7 +30,16 @@ void ui_print_banner(void) {
     printf("\n");
     printf("================================================\n");
     printf("  RM2 Compliance Test Firmware\n");
-    printf("  GC Ultimate 2 - Regulatory Testing\n");
+#ifdef RM2_BOARD_NAME
+    printf("  Board: %s\n", RM2_BOARD_NAME);
+#endif
+#ifdef RM2_BOARD_ID
+    printf("  Pinout id: %s\n", RM2_BOARD_ID);
+#endif
+#ifdef RM2_BUILD_VARIANT
+    printf("  Build: %s\n", RM2_BUILD_VARIANT);
+#endif
+    printf("  Regulatory Testing\n");
     printf("================================================\n");
     printf("\n");
 }
@@ -40,13 +54,31 @@ void ui_print_reboot_notice(void) {
 }
 
 void ui_print_escape_help(void) {
+#if RM2_ENABLE_WIFI
     printf("Use main menu option 4 only to enter the USB bootloader.\n");
+#else
+    printf("Use main menu option 3 only to enter the USB bootloader.\n");
+#endif
     printf("\n");
 }
 
 void ui_clear_screen(void) {
     printf("\033[2J\033[H");
     fflush(stdout);
+}
+
+void ui_drain_pending_input(void) {
+    s_pushback_char = -1;
+    /* Drop buffered keystrokes (e.g. leftover CR/LF from the previous prompt). */
+    for (int i = 0; i < 64; i++) {
+        int c = getchar_timeout_us(0);
+        if (c == PICO_ERROR_TIMEOUT) {
+            break;
+        }
+        if (c == 0x03 || c == 0x1B) {
+            platform_reboot_device();
+        }
+    }
 }
 
 void ui_print_test_result(bool success, const char *test_name, const char *details) {
@@ -80,6 +112,7 @@ void ui_print_test_result(bool success, const char *test_name, const char *detai
 }
 
 void ui_wait_for_ack(const char *prompt) {
+    ui_drain_pending_input();
     ui_prompt(prompt);
     while (ui_serial_connected()) {
         int c;
@@ -173,6 +206,49 @@ bool ui_read_line(char *buf, size_t buflen) {
                 }
             }
             return pos > 0;
+        }
+
+        if (c == '\b' || c == 127) {
+            if (pos > 0) {
+                pos--;
+                printf("\b \b");
+                fflush(stdout);
+            }
+            continue;
+        }
+
+        if (c >= 32 && c < 127 && pos < buflen - 1) {
+            buf[pos++] = (char)c;
+            putchar(c);
+            fflush(stdout);
+        }
+    }
+}
+
+bool ui_read_line_allow_empty(char *buf, size_t buflen) {
+    size_t pos = 0;
+
+    if (buflen == 0) {
+        return false;
+    }
+
+    while (true) {
+        int c;
+        if (!ui_read_char(&c)) {
+            return false;
+        }
+
+        if (c == '\r' || c == '\n') {
+            buf[pos] = '\0';
+            printf("\n");
+            fflush(stdout);
+            if (c == '\r') {
+                int next = getchar_timeout_us(100000);
+                if (next != PICO_ERROR_TIMEOUT && next != '\n') {
+                    s_pushback_char = next;
+                }
+            }
+            return true;
         }
 
         if (c == '\b' || c == 127) {

@@ -13,15 +13,11 @@ import serial
 PORT = "COM6"
 BAUD = 115200
 
-# Steps after already being in the WiFi submenu.
-# Pkteng tests: mode, channel preset 2 (ch6 / ch6 HT40), default Q-value.
-# AP beacon: option 5, default SSID.
+# Steps from WiFi/MFG main menu: mode, channel preset 2 (ch6), default Q.
 WIFI_MENU_TESTS: list[tuple[str, list[str]]] = [
     ("802.11b", ["1", "2", "1"]),
     ("802.11g", ["2", "2", "1"]),
-    ("802.11n HT20", ["3", "2", "1"]),
-    ("802.11n HT40", ["4", "2", "1"]),
-    ("WiFi AP Beacon", ["5", "1"]),
+    ("802.11n", ["3", "2", "1"]),
 ]
 
 
@@ -100,20 +96,20 @@ def run_test(ser: serial.Serial, name: str, steps: list[str], per_step_wait: flo
     return analyze_output(name, "".join(captured))
 
 
-def goto_wifi_menu(ser: serial.Serial) -> None:
-    print("Navigating to WiFi submenu...", flush=True)
-    for attempt in range(4):
-        send(ser, "0")
+def goto_wifi_main(ser: serial.Serial) -> None:
+    """Reach WiFi/MFG main menu (modes are top-level on *_wifi.uf2)."""
+    print("Waiting for WiFi/MFG main menu...", flush=True)
+    for _ in range(6):
+        send(ser, "")
         text = read_for(ser, 1.5)
-        if "Select test category" in text:
-            send(ser, "3")
-            read_for(ser, 2.0)
+        if "WiFi MFG" in text or "802.11b continuous TX" in text:
             return
-        if "--- WiFi Tests" in text:
-            return
-    # Last resort: assume main menu and enter WiFi.
-    send(ser, "3")
-    read_for(ser, 2.0)
+        if "Bluetooth (stock" in text:
+            raise SystemExit(
+                "This port has the BT/stock UF2. Flash RM2_COMPLIANCE_*_wifi.uf2 first."
+            )
+    send(ser, "")
+    read_for(ser, 1.0)
 
 
 def reboot_device(ser: serial.Serial) -> None:
@@ -135,13 +131,17 @@ def main() -> int:
     reboot_device(ser)
     ser = open_port()
     read_for(ser, 1.5)
-    goto_wifi_menu(ser)
+    goto_wifi_main(ser)
 
     results: list[TestResult] = []
     for name, steps in WIFI_MENU_TESTS:
-        per_step = 5.0 if "AP" not in name else 4.0
-        results.append(run_test(ser, name, steps, per_step))
-        time.sleep(0.5)
+        # TX needs a long final wait for the script sequence.
+        results.append(run_test(ser, name, steps, 12.0))
+        # Ack "Press Enter to return to the menu..."
+        send(ser, "")
+        read_for(ser, 1.5)
+        goto_wifi_main(ser)
+        time.sleep(0.3)
 
     ser.close()
 
@@ -156,7 +156,7 @@ def main() -> int:
             print(f"  note: {note}")
 
     failed = [r for r in results if r.status != "CONFIRMED RUNNING"]
-    print(f"\nTotal: {len(results) - len(failed)}/{len(results)} confirmed running")
+    print(f"\nTotal TX: {len(results) - len(failed)}/{len(results)} confirmed running")
     return 0 if not failed else 2
 
 
