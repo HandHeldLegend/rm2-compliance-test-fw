@@ -13,7 +13,7 @@
 | Image | Radio firmware | Tests enabled |
 |-------|----------------|---------------|
 | `RM2_COMPLIANCE_<board>_bt.uf2` | Stock Pico SDK CYW43 | BT Classic + BLE only (HCI at boot, same model as ee8e331) |
-| `RM2_COMPLIANCE_<board>_wifi.uf2` | MFG / `WLTEST` (this folder) | WiFi 11b/g/n script TX only (ioctl/pkteng — **no STA**) |
+| `RM2_COMPLIANCE_<board>_wifi.uf2` | MFG / `WLTEST` (this folder) | WiFi 11b/g/n script TX only (ioctl/pkteng, **no STA**) |
 
 Bluetooth and WiFi are **separate flashes**. Do not expect one UF2 to run both.
 

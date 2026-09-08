@@ -15,19 +15,19 @@ Bluetooth and WiFi **cannot** share one UF2. Each board pinout builds two firmwa
 
 Flash the UF2 that matches your hardware **and** the test you need. The serial banner shows board name, pinout id, and build variant.
 
-**Stock WiFi firmware is not enough for these continuous-TX tests.** The same application code with the SDK’s normal CYW43 blob does not produce useful `pkteng` TX. Manufacturing / `WLTEST` firmware is required for the WiFi image — see [`firmware/README.md`](firmware/README.md).
+**Stock WiFi firmware is not enough for these continuous-TX tests.** The same application code with the SDK’s normal CYW43 blob does not produce useful `pkteng` TX. Manufacturing / `WLTEST` firmware is required for the WiFi image. See [`firmware/README.md`](firmware/README.md).
 
 ## Quick start
 
 ### Prerequisites
 
 - [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.2.0 (or compatible), CMake, and a build toolchain
-- For WiFi builds only: local extract of Raspberry Pi `picow-wifi-mfg-tester` MFG firmware (NDA) — **do not commit these files**
+- For WiFi builds only: local extract of Raspberry Pi `picow-wifi-mfg-tester` MFG firmware (NDA). **Do not commit these files.**
 
 ### Build
 
 ```bash
-# NDA holders — once, before WiFi builds:
+# NDA holders: once, before WiFi builds:
 python tools/extract_mfg_fw_from_uf2.py path/to/picow-wifi-mfg-tester.uf2
 
 cmake -B build
@@ -51,9 +51,9 @@ Full lab steps (PuTTY, COM port, stop/restart, automation): **[`TEST_GUIDE.md`](
 
 ## What the menus cover
 
-**Bluetooth UF2** — Classic and BLE regulatory-style HCI tests (power, channels, etc. as implemented in-menu).
+**Bluetooth UF2**: Classic and BLE regulatory-style HCI tests (power, channels, etc. as implemented in-menu).
 
-**WiFi UF2** — Aligned with the official Pico W 2 GHz script (`chanspec`, `2g_rate`, `txpwr1 -o -q`, continuous `pkteng` TX). Also includes packet-engine **RX** with `pkteng_stats` counters for a second-board sanity check (rate/MCS buckets + RSSI). Continuous TX must still be confirmed with spectrum / lab equipment.
+**WiFi UF2**: Aligned with the official Pico W 2 GHz script (`chanspec`, `2g_rate`, `txpwr1 -o -q`, continuous `pkteng` TX). Also includes packet-engine **RX** with `pkteng_stats` counters for a second-board sanity check (rate/MCS buckets + RSSI). Continuous TX must still be confirmed with spectrum / lab equipment.
 
 Default script TX power is **Q=70 → 17.5 dBm**. Dest MAC is fixed to `00:11:22:33:44:55`.
 
@@ -79,4 +79,4 @@ CYW43439 GPIOs are defined under [`board_pinouts/`](board_pinouts/). Add a new `
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Third-party radio firmware remains under its own proprietary terms and is not part of this license.
+MIT. See [`LICENSE`](LICENSE). Third-party radio firmware remains under its own proprietary terms and is not part of this license.

@@ -72,9 +72,9 @@ typedef enum {
  */
 typedef struct {
     uint32_t flags;
-    uint32_t delay;   /* Inter-packet gap (us) — script "ipg" */
+    uint32_t delay;   /* Inter-packet gap (us), script "ipg" */
     uint32_t nframes; /* 0 = continuous */
-    uint32_t length;  /* Packet length — script "len" */
+    uint32_t length;  /* Packet length, script "len" */
     uint8_t seqno;
     uint8_t dest[6];
     uint8_t src[6];
@@ -211,7 +211,7 @@ static void wifi_report_step(const char *step, int err) {
 /*
  * SET then GET. OK when:
  *  - readback matches (masked), or
- *  - firmware echoes the iovar name (GET not supported for that var) — SET-only OK
+ *  - firmware echoes the iovar name (GET not supported for that var), SET-only OK
  */
 static bool wifi_set_and_verify_u32(const char *step, const char *var, uint32_t val, uint32_t mask) {
     int err = wifi_set_iovar_u32(var, val);
@@ -294,7 +294,7 @@ static bool wifi_set_and_verify_rate(const char *step, uint32_t rate_val) {
 static bool wifi_set_action_ok(const char *step, int err) {
     wifi_report_step(step, err);
     if (err == 0) {
-        printf("           (action cmd — no value readback)\n");
+        printf("           (action cmd, no value readback)\n");
     }
     return err == 0;
 }
@@ -311,7 +311,7 @@ static bool wifi_verify_isup(uint32_t expected, const char *context) {
         return true;
     }
     if ((got & 1u) != (expected & 1u)) {
-        /* Informational only on MFG — no STA networking. */
+        /* Informational only on MFG; no STA networking. */
         printf("  [ OK ] %s: isup=%lu (expected %lu; ignored on MFG)\n",
                context, (unsigned long)(got & 1u), (unsigned long)(expected & 1u));
         return true;
@@ -453,12 +453,12 @@ static uint16_t wifi_build_chanspec(int channel) {
 }
 
 /*
- * MFG / WLTEST builds are for ioctl/pkteng only — they do not support STA
+ * MFG / WLTEST builds are for ioctl/pkteng only; they do not support STA
  * networking bring-up. Load firmware via the driver, then probe with an ioctl.
  * Do not require cyw43 itf_state STA bit.
  */
 static bool wifi_prepare_interface(void) {
-    printf("Preparing WiFi (MFG ioctl path — no STA)...\n");
+    printf("Preparing WiFi (MFG ioctl path, no STA)...\n");
 
     /* Triggers cyw43_ensure_up → firmware download. STA bit is unused for MFG. */
     cyw43_wifi_set_up(&cyw43_state, CYW43_ITF_STA, true, CYW43_COUNTRY_WORLDWIDE);
@@ -528,7 +528,7 @@ static bool wifi_set_and_verify_country_all(void) {
         }
     }
     if (!found_all) {
-        printf("  [ OK ] country ALL SET ok; GET ccode='%.3s' (not ALL — CLM may remap)\n",
+        printf("  [ OK ] country ALL SET ok; GET ccode='%.3s' (not ALL; CLM may remap)\n",
                got);
         return true;
     }
@@ -561,7 +561,7 @@ static bool wifi_script_common_preamble(void) {
     if (!wifi_set_action_ok("WLC_OUT (wl out)", wifi_ioctl_cmd(WLC_OUT) ? 0 : -1)) {
         failed++;
     }
-    /* isup often stays 1 across OUT/DOWN on this host stack — do not require 0. */
+    /* isup often stays 1 across OUT/DOWN on this host stack; do not require 0. */
     if (!wifi_set_action_ok("WLC_DOWN (wl down)", wifi_ioctl_cmd(WLC_DOWN) ? 0 : -1)) {
         failed++;
     }
@@ -671,7 +671,7 @@ static bool wifi_start_pkteng_tx(const uint8_t dest[6]) {
     return true;
 }
 
-/* wl pkteng_stop tx|rx — same 32-byte pkteng iovar, flags only. */
+/* wl pkteng_stop tx|rx: same 32-byte pkteng iovar, flags only. */
 static bool wifi_pkteng_stop(bool rx) {
     wl_pkteng_t pkteng;
     memset(&pkteng, 0, sizeof(pkteng));
@@ -713,7 +713,7 @@ static bool wifi_start_pkteng_rx(const uint8_t dest[6], bool with_ack, bool sync
     return true;
 }
 
-/* wl pkteng_stats [-g 0|1] — gain_correct default 0. */
+/* wl pkteng_stats [-g 0|1]: gain_correct default 0. */
 static bool wifi_get_pkteng_stats(wl_pkteng_stats_t *stats_out, uint8_t gain_correct) {
     if (stats_out == NULL) {
         return false;
@@ -827,7 +827,7 @@ static bool wifi_run_rx_test(wifi_mode_t mode, int channel, bool with_ack) {
         printf("  STATUS: CONFIRMED RUNNING\n");
         printf("========================================\n");
         printf("%s\n", details);
-        printf("Polling pkteng_stats — Press Enter to stop RX.\n\n");
+        printf("Polling pkteng_stats. Press Enter to stop RX.\n\n");
         test_session_set_running("WiFi pkteng RX", details);
 
         uint32_t poll = 0;
@@ -867,7 +867,7 @@ static bool wifi_run_rx_test(wifi_mode_t mode, int channel, bool with_ack) {
         printf("  STATUS: FAILED TO START\n");
         printf("========================================\n");
         printf("%s\n", details);
-        printf("A SET or readback verify failed — see steps above.\n");
+        printf("A SET or readback verify failed. See steps above.\n");
         test_session_set_failed("WiFi pkteng RX", details);
         (void)wifi_pkteng_stop(true);
     }
@@ -914,7 +914,7 @@ static bool wifi_run_tx_test(wifi_mode_t mode, int channel, int q_value) {
         success = false;
     } else {
         sleep_ms(50);
-        /* MFG is not a STA stack — isup can disagree; do not fail the run. */
+        /* MFG is not a STA stack; isup can disagree, do not fail the run. */
         (void)wifi_verify_isup(1, "after up");
     }
 
@@ -957,7 +957,7 @@ static bool wifi_run_tx_test(wifi_mode_t mode, int channel, int q_value) {
         printf("  STATUS: FAILED TO START\n");
         printf("========================================\n");
         printf("%s\n", details);
-        printf("A SET or readback verify failed — see steps above.\n");
+        printf("A SET or readback verify failed. See steps above.\n");
         printf("Press Ctrl+C or Esc to reboot and try again.\n");
         test_session_set_failed(wifi_mode_name(mode), details);
     }

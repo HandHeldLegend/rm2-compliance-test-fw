@@ -1,6 +1,6 @@
 """Extract CYW43439 MFG firmware+CLM from picow-wifi-mfg-tester.uf2.
 
-PROPRIETARY OUTPUT — do not commit the generated files.
+PROPRIETARY OUTPUT: do not commit the generated files.
 See firmware/README.md (NDA holders only).
 
 Example:
@@ -106,7 +106,7 @@ def find_whd_clm_descriptor(flash: bytes, fw_start: int, fw_size: int) -> tuple[
 
 def write_header(path: Path, combined: bytes, fw_size: int, clm_size: int, ver: str) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as f:
-        f.write("/* PROPRIETARY — generated locally; do not commit or publish */\n")
+        f.write("/* PROPRIETARY: generated locally; do not commit or publish */\n")
         f.write("/* Auto-extracted from picow-wifi-mfg-tester.uf2 (Raspberry Pi NDA package) */\n")
         f.write(f"/* {ver} */\n")
         f.write("#include <stdint.h>\n")

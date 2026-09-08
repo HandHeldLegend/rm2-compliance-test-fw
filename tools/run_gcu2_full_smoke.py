@@ -101,7 +101,7 @@ def reboot_session(port: str) -> serial.Serial:
 
 
 def banner(s: serial.Serial) -> str:
-    """Drain until the main menu is visible (do not send empty lines — that is Invalid input)."""
+    """Drain until the main menu is visible (do not send empty lines, that is Invalid input)."""
     end = time.time() + 20.0
     chunks: list[str] = []
     while time.time() < end:
@@ -141,7 +141,7 @@ def flash_uf2(port: str, uf2: str, bootsel_choice: str) -> str:
     # port may change; rediscover after USB re-enum
     time.sleep(2.0)
     port = find_port()
-    # Fresh image — do not Ctrl+C; just open and wait for menu
+    # Fresh image: do not Ctrl+C, just open and wait for menu
     for _ in range(20):
         try:
             s = open_p(port, retries=8)

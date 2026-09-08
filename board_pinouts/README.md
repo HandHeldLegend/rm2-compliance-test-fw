@@ -35,7 +35,7 @@ set(BT_CS_PIN ...)
 `BOARD_NAME` appears in the serial UI banner. The filename stem (`myboard`)
 is the pinout id used in the UF2 names.
 
-3. Reconfigure and build (MFG header required for `*_wifi` targets — see
+3. Reconfigure and build (MFG header required for `*_wifi` targets, see
    `firmware/README.md`):
 
 ```bash

@@ -22,7 +22,7 @@ tools/_last_*.txt
 probe/
 
 # ---------------------------------------------------------------------------
-# PROPRIETARY — do not commit or publish
+# PROPRIETARY: do not commit or publish
 # CYW43439 manufacturing (MFG / WLTEST) Wi-Fi firmware obtained under NDA
 # from Raspberry Pi (e.g. picow-wifi-mfg-tester.uf2) and local extracts.
 # See firmware/README.md for NDA-holder extract instructions.

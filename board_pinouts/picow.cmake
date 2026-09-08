@@ -1,4 +1,4 @@
-# Raspberry Pi Pico W — use Pico SDK board defaults for CYW43 pins
+# Raspberry Pi Pico W: use Pico SDK board defaults for CYW43 pins
 # (same as ee8e331 which did not override pins on stock Pico W).
 set(BOARD_NAME "Raspberry Pi Pico W")
 set(RM2_USE_SDK_CYW43_PINS 1)

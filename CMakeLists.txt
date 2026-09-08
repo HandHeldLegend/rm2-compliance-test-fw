@@ -104,7 +104,7 @@ function(rm2_add_compliance_firmware BOARD_ID PINOUT_FILE VARIANT)
         set(_rm2_variant_str "WiFi MFG (WLTEST pkteng firmware)")
     endif()
     file(WRITE "${RM2_GEN_DIR}/rm2_build_info.h"
-        "/* Generated — do not edit */\n"
+        "/* Generated file, do not edit */\n"
         "#pragma once\n"
         "#define RM2_BOARD_ID \"${BOARD_ID}\"\n"
         "#define RM2_BOARD_NAME \"${BOARD_NAME}\"\n"
@@ -182,7 +182,7 @@ list(SORT RM2_PINOUT_FILES)
 
 if(NOT RM2_PINOUT_FILES)
     message(FATAL_ERROR
-        "No board pinouts found in board_pinouts/*.cmake — see board_pinouts/README.md")
+        "No board pinouts found in board_pinouts/*.cmake. See board_pinouts/README.md")
 endif()
 
 foreach(PINOUT_FILE ${RM2_PINOUT_FILES})
